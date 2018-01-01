@@ -14,17 +14,18 @@ if len(sys.argv) != 2:
     print "Usage:%s sut_devicename_list" % sys.argv[0]
     sys.exit(1)
 
-sut_devicename_list = sys.argv[1]
+sut_devicenames = sys.argv[1]
 
 #ethtool -S
-
+sut_devicename_list = sut_devicenames.split(";")
 path = os.path.abspath(os.path.join(os.path.dirname(__file__),os.pardir,os.pardir,'Lib_testcase'))
 sys.path.append(path)
 
 
 class parse(object):
     def __init__(self):
-        self.log_dir_prefix = file('/tmp/tools/name').readlines()[0].strip()
+        with open("/tmp/tools/name", mode="r") as f:
+            self.log_dir_prefix = f.readlines()[0].strip()
         self.log_dir_prefix = self.log_dir_prefix + "/Stress/NIC_PERF_3"
         if not os.path.isdir(self.log_dir_prefix):
             os.makedirs(self.log_dir_prefix)
@@ -36,9 +37,9 @@ class parse(object):
         tc_result = {}
         tc_result["total_result"] = "fail"
         for index_sutdevicename, sut_devicename in enumerate(sut_devicename_list):
-            # check ethtool -S result
             tc_result["%s" % sut_devicename] = {}
             tc_result["%s" % sut_devicename]["result_%s" % sut_devicename] = "fail"
+            # check ethtool -S result
             tc_result["%s" % sut_devicename]["ethtool_s_result"] = {}
             tc_result["%s" % sut_devicename]["ethtool_s_result"]["result"] = "fail"
             ethtool_s_temp = subprocess.Popen('ethtool -S %s|grep -iE "err|fail|drop|lost"' % sut_devicename, shell=True, stdout=subprocess.PIPE).stdout.readlines()
@@ -81,10 +82,17 @@ class parse(object):
                     dmesg_error_list.append(dmesg_error_info)
                 error_info_write = ";".join(dmesg_error_list)
                 tc_result["%s" % sut_devicename]["dmesg_result"]["error_info"] = error_info_write
-            #generate total result
+            #generate total result for one device
             if tc_result["%s" % sut_devicename]["ethtool_s_result"]["result"] == "pass" and tc_result["%s" % sut_devicename]["lspci_vvv"]["result"] == "pass" and tc_result["%s" % sut_devicename]["dmesg_result"]["result"] == "pass":
                 tc_result["%s" % sut_devicename]["result_%s" % sut_devicename] = "pass"
-
+        resultcode  = 0
+        for index_sutdevicename_sub, sut_devicename_sub in enumerate(sut_devicename_list):
+            if tc_result["%s" % sut_devicename_sub]["result_%s" % sut_devicename_sub] == "pass":
+                resultcode += 0
+            else:
+                resultcode += 1
+        if resultcode == 0:
+            tc_result["total_result"] = "pass"
 
         #change to json
         data_string = json.dumps(tc_result, sort_keys=True, indent=4)

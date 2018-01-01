@@ -17,8 +17,8 @@ if len(sys.argv) != 7:
 sut_ctrl_ip = sys.argv[1]
 sut_username = sys.argv[2]
 sut_password = sys.argv[3]
-sut_devicename_list = sys.argv[4]
-client_devicename_list = sys.argv[5]
+sut_devicenames = sys.argv[4]
+client_devicenames = sys.argv[5]
 jumbo_max = sys.argv[6]
 
 path = os.path.abspath(os.path.join(os.path.dirname(__file__),os.pardir,os.pardir,'Lib_testcase'))
@@ -28,24 +28,39 @@ if jumbo_max not in mtu_list:
     mtu_list.append(jumbo_max)
 
 #get log path
+#create client log path
 with open("/tmp/tools/name", mode="r") as temp_file:
     log_dir_prefix = temp_file.readlines()[0].strip()
 
 log_dir_prefix=log_dir_prefix + "/Stress/NIC_PERF_3"
 if not os.path.isdir(log_dir_prefix):
     os.makedirs(log_dir_prefix)
+
 #test input list length
+sut_devicename_list = sut_devicenames.split(";")
+client_devicename_list = client_devicenames.split(";")
 if len(sut_devicename_list) != len(client_devicename_list):
     print "Input error! The length of sut_devicename_list need equal the length of client_devicename_list!"
     sys.exit(1)
 
+ssh_to_sut = paramiko.SSHClient()
 
 for mtu_current in mtu_list:
     for index_sut_devicename, sut_devicename in enumerate(sut_devicename_list):
         client_devicename = client_devicename_list[index_sut_devicename]
-        SutDevicePath = log_dir_prefix + '/Sut' + sut_devicename
-        if not os.path.isdir(SutDevicePath):
-            os.makedirs(SutDevicePath)
+        #get sut test name
+        ssh_to_sut.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh_to_sut.connect(sut_ctrl_ip, 22, username=sut_username, password=sut_password)
+        test_a, log_dir_prefix_sut_test, test_b = ssh_to_sut.exec_command(command="cat /tmp/tools/name")
+        log_dir_prefix_sut_1 = log_dir_prefix_sut_test.readlines()[0].strip()
+        ssh_to_sut.close()
+        # create sut test log dir
+        log_dir_prefix_sut = log_dir_prefix_sut_1 + "/Stress/NIC_PERF_2"
+        SutDevicePath = log_dir_prefix_sut + '/Sut' + sut_devicename
+        ssh_to_sut.connect(sut_ctrl_ip, 22, username=sut_username, password=sut_password)
+        ssh_to_sut.exec_command(command="if [ ! -d %s ];then mkdir -p %s;fi" % (SutDevicePath, SutDevicePath))
+        ssh_to_sut.close()
+
         ClientDevicePath = log_dir_prefix + '/Client' + client_devicename
         if not os.path.isdir(ClientDevicePath):
             os.makedirs(ClientDevicePath)
@@ -62,11 +77,13 @@ for mtu_current in mtu_list:
         print "Client MTU for %s set %s successfully!" %(client_devicename, mtu_current)
 
         #login to sut to set mtu
-        ssh_to_sut = paramiko.SSHClient()
-        ssh_to_sut.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        #set mtu
         ssh_to_sut.connect(sut_ctrl_ip, 22, username=sut_username, password=sut_password)
         ssh_to_sut.exec_command("ifconfig %s mtu %s" % (sut_devicename, mtu_current))
+        ssh_to_sut.close()
         time.sleep(2)
+        #check mtu
+        ssh_to_sut.connect(sut_ctrl_ip, 22, username=sut_username, password=sut_password)
         stdin_checkmtu, stdout_checkmtu, stderr_checkmtu = ssh_to_sut.exec_command("ip addr show|grep %s|grep mtu|awk '{match($0,/mtu\s*([0-9]*)/,a);print a[1]}'" % sut_devicename)
         check_mtu_sut = stdout_checkmtu.readlines()[0].strip()
         ssh_to_sut.close()
@@ -83,7 +100,7 @@ for mtu_current in mtu_list:
 
         #start  iperf3
         # start iperf3 server in client
-        subprocess.Popen("numactl --cpunodebind=netdev:%s --membind=netdev:%s iperf3 -s -i 5 --forceflush 5|grep -i sum &" % (sut_devicename, sut_devicename), shell=True, stdout=subprocess.PIPE)
+        subprocess.Popen("numactl --cpunodebind=netdev:%s --membind=netdev:%s iperf3 -s -i 5 --forceflush 5|grep -i sum &" % (client_devicename, client_devicename), shell=True, stdout=subprocess.PIPE)
 
         #login to sut to start server
         ssh_to_sut.connect(sut_ctrl_ip, 22, username=sut_username, password=sut_password)
@@ -121,12 +138,13 @@ for mtu_current in mtu_list:
         iperf_test_sut = subprocess.Popen("numactl --cpunodebind=netdev:%s --membind=netdev:%s iperf3 -c %s -t 100 -i 5 --forceflush 5 -P %s | grep -i sum" % (client_devicename, client_devicename, sut_test_ip, N) ,shell=True, stdout=log_iperf)
         iperf_test_sut.wait()
         log_iperf.close()
+        time.sleep(2)
         #close iperf3 remotely
         # test if iperf3 ended in sut
         while 1 != 2:
             ssh_to_sut.connect(sut_ctrl_ip, 22, username=sut_username, password=sut_password)
-            stdin, stdout_iperf3, stderr = ssh_to_sut.exec_command(command=' ps -aux|grep iperf3|grep -v grep')
-            if len(stdout_iperf3) == 0:
+            stdin, stdout_iperf3, stderr = ssh_to_sut.exec_command(command='ps -aux|grep "iperf3 -c"|grep -v grep')
+            if len(stdout_iperf3.readlines()) == 0:
                 ssh_to_sut.close()
                 break
             else:
