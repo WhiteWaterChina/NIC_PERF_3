@@ -72,13 +72,13 @@ class parse(object):
             sut_driver_name = subprocess.Popen("ethtool -i %s|grep driver|awk -F ':' '{print $2}'" % sut_devicename, shell=True,stdout=subprocess.PIPE).stdout.readlines()[0].strip()
             tc_result["%s" % sut_devicename]["dmesg_result"] = {}
             tc_result["%s" % sut_devicename]["dmesg_result"]["result"] = "fail"
-            dmesg_result = subprocess.Popen('dmesg|grep -E "BDF|%s" |grep -iE "fail|err|warn|unsupport"' % sut_driver_name, shell=True, stdout=subprocess.PIPE).stdout.readlines()
+            dmesg_result = subprocess.Popen('dmesg|grep -E "%s|%s" |grep -iE "fail|err|warn|unsupport"' % (pcie_bus, sut_driver_name), shell=True, stdout=subprocess.PIPE).stdout.readlines()
             if len(dmesg_result) == 0:
                 tc_result["%s" % sut_devicename]["dmesg_result"]["result"] = "pass"
             else:
                 dmesg_error_list = []
                 for item_dmesg in dmesg_result:
-                    dmesg_error_info = item_dmesg.split.strip()
+                    dmesg_error_info = item_dmesg.strip()
                     dmesg_error_list.append(dmesg_error_info)
                 error_info_write = ";".join(dmesg_error_list)
                 tc_result["%s" % sut_devicename]["dmesg_result"]["error_info"] = error_info_write
